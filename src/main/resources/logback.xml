@@ -1,5 +1,3 @@
-
-
 <configuration>
 
   <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
@@ -13,7 +11,7 @@
   <logger name="io.vertx" level="info"/>
   <logger name="io.vertx.guides.wiki" level="debug"/>
 
-  <root level="debug">
+  <root level="WARN">
     <appender-ref ref="STDOUT"/>
   </root>
 
