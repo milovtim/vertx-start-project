@@ -1,13 +1,17 @@
 package io.vertx.starter;
 
+import com.github.rjeschke.txtmark.Processor;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Future;
 import io.vertx.core.http.HttpHeaders;
 import io.vertx.core.http.HttpServer;
+import io.vertx.core.http.HttpServerRequest;
+import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
 import io.vertx.ext.jdbc.JDBCClient;
+import io.vertx.ext.sql.ResultSet;
 import io.vertx.ext.sql.SQLConnection;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
@@ -15,8 +19,12 @@ import io.vertx.ext.web.handler.BodyHandler;
 import io.vertx.ext.web.templ.FreeMarkerTemplateEngine;
 import io.vertx.ext.web.templ.TemplateEngine;
 
+import java.util.Date;
 import java.util.List;
 
+import static io.netty.handler.codec.http.HttpResponseStatus.SEE_OTHER;
+import static java.util.Arrays.asList;
+import static java.util.Collections.singletonList;
 import static java.util.stream.Collectors.toList;
 
 public class MainVerticle extends AbstractVerticle {
@@ -83,19 +91,113 @@ public class MainVerticle extends AbstractVerticle {
         return future;
     }
 
-    private void pageDeletionHandler(RoutingContext routingContext) {
+    private void pageDeletionHandler(RoutingContext ctxt) {
+        String pageId = ctxt.request().getParam("id");
+
+        dbClient.getConnection(connRes -> {
+            if (connRes.failed()) {
+                ctxt.fail(connRes.cause());
+            } else {
+                connRes.result().updateWithParams(SQL_DELETE_PAGE, new JsonArray(singletonList(pageId)), sqlRes -> {
+                    int updated = sqlRes.result().getUpdated();
+                    connRes.result().close();
+                    if (updated == 1) {
+                        log.debug("Page with id={} was deleted", pageId);
+                    } else {
+                        log.warn("Cant delete page. No page with id={} found", pageId);
+                    }
+                    redirect(ctxt, null);
+                });
+            }
+        });
     }
 
-    private void pageCreateHandler(RoutingContext routingContext) {
-
+    private void pageCreateHandler(RoutingContext ctxt) {
+        String pageName = ctxt.request().getParam("name");
+        redirect(ctxt, pageName);
     }
 
-    private void pageUpdateHandler(RoutingContext routingContext) {
-
+    private void redirect(RoutingContext ctxt, String pageName) {
+        String location = (pageName == null || pageName.isEmpty()) ? "/" : "/wiki/" + pageName;
+        ctxt.response()
+            .putHeader(HttpHeaders.LOCATION, location)
+            .setStatusCode(SEE_OTHER.code())
+            .end();
     }
 
-    private void pageRenderingHandler(RoutingContext routingContext) {
+    private void pageUpdateHandler(RoutingContext ctxt) {
+        HttpServerRequest req = ctxt.request();
+        String pageId = req.getParam("id");
+        String title = req.getParam("title");
+        String markdown = req.getParam("markdown");
+        Boolean newPage = Boolean.valueOf(req.getParam("newPage"));
 
+        dbClient.getConnection(connRes -> {
+            if (connRes.failed()) {
+                ctxt.fail(connRes.cause());
+            } else {
+                SQLConnection conn = connRes.result();
+                String sql = newPage ? SQL_CREATE_PAGE : SQL_SAVE_PAGE;
+                JsonArray params = newPage ? new JsonArray(asList(title, markdown)) : new JsonArray(asList(markdown, pageId));
+                conn.updateWithParams(sql, params, sqlRes -> {
+                    conn.close();
+                    if (sqlRes.failed()) {
+                        ctxt.fail(sqlRes.cause());
+                    } else {
+                        log.debug("{} page named '{}'", newPage? "Create": "Update", title);
+                        redirect(ctxt, title);
+                    }
+                });
+            }
+        });
+    }
+
+    private static final String EMPTY_PAGE_TMPL =
+        "This is the new empty page\n\nUse markdown syntax to write you text";
+
+    private void pageRenderingHandler(RoutingContext rCtxt) {
+        Object pageName = rCtxt.request().getParam("page");
+
+        dbClient.getConnection(connRes -> {
+            if (connRes.failed()) {
+                rCtxt.fail(connRes.cause());
+            } else {
+                SQLConnection sqlConnection = connRes.result();
+                sqlConnection.queryWithParams(SQL_GET_PAGE, new JsonArray(singletonList(pageName)), resultSetRes -> {
+                    if (resultSetRes.failed()) {
+                        rCtxt.fail(resultSetRes.cause());
+                    } else {
+                        ResultSet resSet = resultSetRes.result();
+                        final boolean[] isNewPage = {false};
+                        JsonArray pageIdAndContent = resSet.getResults().stream()
+                            .findFirst()
+                            .orElseGet(() -> {
+                                isNewPage[0] = true; //if no rows in resultSet, set 'newPage' flag
+                                return new JsonArray(asList(-1, EMPTY_PAGE_TMPL));
+                            });
+                        Integer pageId = pageIdAndContent.getInteger(0);
+                        String pageContent = pageIdAndContent.getString(1);
+
+                        rCtxt.put("title", pageName)
+                            .put("id", pageId)
+                            .put("newPage", isNewPage[0])
+                            .put("rawContent", pageContent)
+                            .put("content", Processor.process(pageContent))
+                            .put("timestamp", new Date().toString());
+
+                        freemarker.render(rCtxt, "templates", "/page.ftl", renderRes -> {
+                            if (renderRes.failed()) {
+                                rCtxt.fail(renderRes.cause());
+                            } else {
+                                rCtxt.response()
+                                    .putHeader(HttpHeaders.CONTENT_TYPE, "text/html")
+                                    .end(renderRes.result());
+                            }
+                        });
+                    }
+                });
+            }
+        });
     }
 
     private void indexHandler(RoutingContext routingContext) {
