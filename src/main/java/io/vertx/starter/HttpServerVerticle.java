@@ -33,7 +33,7 @@ public class HttpServerVerticle extends AbstractVerticle {
 
     @Override
     public void start(Future<Void> ftre) throws Exception {
-        wikiDbQueue = config().getString(CONFIG_WIKIDB_QUEUE, "wikidb.queue");
+        wikiDbQueue = config().getString(CONFIG_WIKIDB_QUEUE, CONFIG_WIKIDB_QUEUE);
         Integer serverPort = config().getInteger(CONFIG_HTTP_SERVER_PORT, 8080);
 
         Router router = Router.router(vertx);
