@@ -58,6 +58,7 @@ public class HttpServerVerticle extends AbstractVerticle {
 
     private void pageDeletionHandler(RoutingContext ctxt) {
         String id = ctxt.request().getParam("id");
+        log.debug("Handle page (id={}) deletion http method", id);
         JsonObject request = new JsonObject().put("id", id);
         DeliveryOptions options = new DeliveryOptions().addHeader(ACTION, "delete-page");
         vertx.eventBus().send(wikiDbQueue, request, options, reply -> {
@@ -73,6 +74,7 @@ public class HttpServerVerticle extends AbstractVerticle {
 
     private void pageCreateHandler(RoutingContext ctxt) {
         String pageName = ctxt.request().getParam("name");
+        log.debug("Handler page (name={}) creation http method", pageName);
         redirect(ctxt, pageName);
     }
 
@@ -91,6 +93,7 @@ public class HttpServerVerticle extends AbstractVerticle {
             .put("title", title)
             .put("markdown", ctxt.request().getParam("markdown"));
 
+        log.debug("Handle page (title={}) update http method", title);
         DeliveryOptions options = new DeliveryOptions()
             .addHeader(ACTION, valueOf(ctxt.request().getParam("newPage")) ? "create-page" : "save-page");
 
@@ -110,6 +113,7 @@ public class HttpServerVerticle extends AbstractVerticle {
         String pageName = rCtxt.request().getParam("page");
 
         JsonObject jsonRequest = new JsonObject().put("page", pageName);
+        log.debug("Handle page (page={}) render http method", pageName);
 
         DeliveryOptions deliveryOptions = new DeliveryOptions().addHeader(ACTION, "get-page");
 
@@ -143,6 +147,8 @@ public class HttpServerVerticle extends AbstractVerticle {
 
     private void indexHandler(RoutingContext ctxt) {
         DeliveryOptions deliveryOptions = new DeliveryOptions().addHeader(ACTION, "all-pages");
+
+        log.debug("Handle index page http method");
 
         vertx.eventBus().send(wikiDbQueue, null, deliveryOptions, msgRes -> {
             if (msgRes.failed()) {
